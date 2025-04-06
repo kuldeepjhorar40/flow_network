@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flow Network Visualizer 🚀</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    h1 {
+      margin: 20px;
+      font-size: 1.8rem;
+      color: #38bdf8;
+    }
+
+    #network {
+      width: 90vw;
+      height: 80vh;
+      border: 2px solid #38bdf8;
+      border-radius: 12px;
+      background: #1e293b;
+    }
+
+    #fixScreenBtn {
+      margin: 10px;
+      padding: 10px 18px;
+      background: #ff5722;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.3s ease;
+    }
+
+    #fixScreenBtn:hover {
+      background: #d84315;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔁 Interactive Flow Network (Click Node to Trace & Fix)</h1>
+  <button id="fixScreenBtn">Fix Screen</button>
+  <div id="network"></div>
+
+  <script>
+    let network, nodes, edges, allEdges;
+    let isScreenFixed = false;
+
+    fetch('/graph')
+      .then(res => res.json())
+      .then(data => {
+        nodes = new vis.DataSet(data.nodes.map(node => ({
+          ...node,
+          fixed: { x: false, y: false }
+        })));
+
+        edges = new vis.DataSet(data.edges);
+        allEdges = edges.get();
+
+        const container = document.getElementById("network");
+
+        const options = {
+          layout: {
+            hierarchical: {
+              direction: "LR",
+              sortMethod: "directed"
+            }
+          },
+          physics: {
+            enabled: true,
+            hierarchicalRepulsion: {
+              nodeDistance: 120
+            }
+          },
+          interaction: {
+            hover: true,
+            navigationButtons: true,
+            keyboard: true
+          },
+          nodes: {
+            shape: "dot",
+            size: 20,
+            font: { color: "#fff", size: 14, face: "Arial" },
+            borderWidth: 2,
+            color: {
+              background: "#3b82f6",
+              border: "#93c5fd",
+              highlight: {
+                background: "#facc15",
+                border: "#fef08a"
+              }
+            }
+          },
+          edges: {
+            arrows: 'to',
+            smooth: true,
+            color: { color: '#777', highlight: '#ff0000' },
+            width: 2
+          }
+        };
+
+        network = new vis.Network(container, { nodes, edges }, options);
+
+        // After initial layout, disable layout and physics to freeze
+        network.once('stabilizationIterationsDone', () => {
+          network.setOptions({
+            layout: { hierarchical: false },
+            physics: false
+          });
+        });
+
+        // Fix node on click and highlight path
+        network.on("click", function (params) {
+          if (params.nodes.length > 0) {
+            const nodeId = params.nodes[0];
+            const position = network.getPositions([nodeId])[nodeId];
+
+            nodes.update({
+              id: nodeId,
+              x: position.x,
+              y: position.y,
+              fixed: { x: true, y: true }
+            });
+
+            network.setOptions({ physics: false });
+
+            highlightOutgoingPath(nodeId);
+          } else {
+            resetEdges();
+          }
+        });
+
+        // Lock/unlock drag screen
+        document.getElementById("fixScreenBtn").addEventListener("click", function () {
+          isScreenFixed = !isScreenFixed;
+          network.setOptions({
+            interaction: {
+              dragNodes: !isScreenFixed,
+              zoomView: !isScreenFixed,
+              dragView: !isScreenFixed
+            }
+          });
+          this.textContent = isScreenFixed ? "Unfix Screen" : "Fix Screen";
+          this.style.background = isScreenFixed ? "#4CAF50" : "#ff5722";
+        });
+      });
+
+    function highlightOutgoingPath(startNode) {
+      const queue = [startNode];
+      const visited = new Set();
+      const glowColor = "#00ffff";
+
+      const updatedEdges = allEdges.map(edge => ({
+        ...edge,
+        color: "#777",
+        width: 1
+      }));
+
+      while (queue.length > 0) {
+        const node = queue.shift();
+        if (visited.has(node)) continue;
+        visited.add(node);
+
+        allEdges.forEach(edge => {
+          if (edge.from === node) {
+            const index = updatedEdges.findIndex(e => e.from === edge.from && e.to === edge.to);
+            if (index !== -1) {
+              updatedEdges[index].color = glowColor;
+              updatedEdges[index].width = 4;
+            }
+            queue.push(edge.to);
+          }
+        });
+      }
+
+      edges.update(updatedEdges);
+      network.focus(startNode, { scale: 1.2, animation: { duration: 500 } });
+    }
+
+    function resetEdges() {
+      const defaultEdges = allEdges.map(edge => ({
+        ...edge,
+        color: '#777',
+        width: 1
+      }));
+      edges.update(defaultEdges);
+    }
+  </script>
+</body>
+</html>
